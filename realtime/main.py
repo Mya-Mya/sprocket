@@ -8,7 +8,7 @@ import joblib
 
 from example.src.yml import SpeakerYML, PairYML
 from realtime.util import audioio
-from realtime.workers import converter_worker,feature_extractor_worker
+from realtime.workers import converter_worker, feature_extractor_worker
 from realtime.workers import configs
 from sprocket.util.hdf5 import HDF5
 
@@ -31,9 +31,10 @@ if __name__ == '__main__':
     )
     parser.add_argument('source', help='変換前の話者名', type=str)
     parser.add_argument('target', help='変換後の話者名', type=str)
-    parser.add_argument('--i',help='入力デバイスの番号',type=int,default=None)
-    parser.add_argument('--o',help='出力デバイスの番号',type=int,default=None)
-    parser.add_argument('--frames',help='フレームあたりのバッファ数',type=int,default=16384)
+    parser.add_argument('--i', help='入力デバイスの番号', type=int, default=None)
+    parser.add_argument('--o', help='出力デバイスの番号', type=int, default=None)
+    parser.add_argument('--alpha', help='オールパスフィルターの係数', type=float, default=None)
+    parser.add_argument('--frames', help='フレームあたりのバッファ数', type=int, default=16384)
     args = parser.parse_args(argv)
 
     # パスに関係する定数
@@ -74,6 +75,8 @@ if __name__ == '__main__':
     cvgv_h5.close()
 
     # プログラム実行に必要なパラメータを作る
+    mcep_alpha = args.alpha or speaker_config.mcep_alpha
+
     logger.info('パラメータを生成中')
     feature_extractor_config = configs.FeatureExtractorConfig(
         fs=speaker_config.wav_fs,
@@ -82,7 +85,7 @@ if __name__ == '__main__':
         minf0=speaker_config.f0_minf0,
         maxf0=speaker_config.f0_maxf0,
         mcep_dim=speaker_config.mcep_dim,
-        mcep_alpha=speaker_config.mcep_alpha
+        mcep_alpha=mcep_alpha
     )
     logger.debug(feature_extractor_config)
 
@@ -112,7 +115,7 @@ if __name__ == '__main__':
         fs=speaker_config.wav_fs,
         fftl=speaker_config.wav_fftl,
         shiftms=speaker_config.wav_shiftms,
-        mcep_alpha=speaker_config.mcep_alpha,
+        mcep_alpha=mcep_alpha
     )
     logger.debug(synthesizer_config)
 
@@ -121,16 +124,15 @@ if __name__ == '__main__':
     while input_device_index is None:
         print('以下より入力デバイスの番号を指定')
         available_input_devices = audioio.get_available_input_devices()
-        for k,v in available_input_devices.items():
-            print('{:03d}'.format(k),':',v)
+        for k, v in available_input_devices.items():
+            print('{:03d}'.format(k), ':', v)
         x = int(input())
-        if 0<=x<len(available_input_devices):
+        if 0 <= x < len(available_input_devices):
             input_device_index = x
 
     output_device_index = args.o
     while output_device_index is None:
         print('以下より出力デバイスの番号を指定')
-        print('以下より入力デバイスの番号を指定')
         available_output_devices = audioio.get_available_output_devices()
         for k, v in available_output_devices.items():
             print('{:03d}'.format(k), ':', v)
@@ -189,8 +191,8 @@ if __name__ == '__main__':
             converted_queue.qsize()
         ))
 
-        if recorded_queue_size>MAX_RECORDED_QUEUE_SIZE:
-            num_remove = recorded_queue_size-MAX_RECORDED_QUEUE_SIZE
+        if recorded_queue_size > MAX_RECORDED_QUEUE_SIZE:
+            num_remove = recorded_queue_size - MAX_RECORDED_QUEUE_SIZE
             logger.debug('録音キューから強制的に{}個取り除く'.format(num_remove))
             for _ in range(num_remove):
                 recorded_queue.get()
