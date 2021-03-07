@@ -6,8 +6,10 @@ from pathlib import Path
 
 import joblib
 
+ROOT_DIR = Path(__file__).parent.parent
+sys.path.append(str(ROOT_DIR))
 from example.src.yml import SpeakerYML, PairYML
-from realtime.util import audioio
+from realtime.util import audioio, queue_reducer
 from realtime.workers import converter_worker, feature_extractor_worker
 from realtime.workers import configs
 from sprocket.util.hdf5 import HDF5
@@ -19,7 +21,7 @@ handler.setLevel(logging.DEBUG)
 handler.setFormatter(logging.Formatter("[%(asctime)s] [%(process)d] [%(name)s] [%(levelname)s] %(message)s"))
 logger.addHandler(handler)
 
-MAX_RECORDED_QUEUE_SIZE = 2
+MAX_QUEUE_SIZE = 2
 
 if __name__ == '__main__':
     # 引数を解析する
@@ -121,31 +123,34 @@ if __name__ == '__main__':
 
     # 入出力デバイスを決定する
     input_device_index = args.i
+    available_input_devices = audioio.get_available_input_devices()
     while input_device_index is None:
         print('以下より入力デバイスの番号を指定')
-        available_input_devices = audioio.get_available_input_devices()
         for k, v in available_input_devices.items():
             print('{:03d}'.format(k), ':', v)
         x = int(input())
         if 0 <= x < len(available_input_devices):
             input_device_index = x
+    print('入力デバイス:[',input_device_index,'] ',available_input_devices[input_device_index])
 
     output_device_index = args.o
+    available_output_devices = audioio.get_available_output_devices()
     while output_device_index is None:
         print('以下より出力デバイスの番号を指定')
-        available_output_devices = audioio.get_available_output_devices()
         for k, v in available_output_devices.items():
             print('{:03d}'.format(k), ':', v)
         x = int(input())
         if 0 <= x < len(available_output_devices):
             output_device_index = x
+    print('出力デバイス:[',output_device_index,'] ',available_output_devices[output_device_index])
 
     # マイクとスピーカーを起動
     logger.info('マイクを起動中')
     microphone = audioio.Microphone(
         frames_per_buffer=args.frames,
         frame_rate=speaker_config.wav_fs,
-        input_device_index=input_device_index
+        input_device_index=input_device_index,
+        cutoff=0
     )
     logger.info('スピーカーを起動中')
     speaker = audioio.Speaker(
@@ -159,6 +164,9 @@ if __name__ == '__main__':
     recorded_queue = Queue()
     feature_queue = Queue()
     converted_queue = Queue()
+    recorded_queue_reducer = queue_reducer.QueueReducer(MAX_QUEUE_SIZE, recorded_queue)
+    feature_queue_reducer = queue_reducer.QueueReducer(MAX_QUEUE_SIZE, feature_queue)
+    converted_queue_reducer = queue_reducer.QueueReducer(MAX_QUEUE_SIZE, converted_queue)
 
     feature_extractor = feature_extractor_worker.FeatureExtractorWorker(
         recorded_queue=recorded_queue,
@@ -184,18 +192,14 @@ if __name__ == '__main__':
     converter_process.start()
 
     while True:
-        recorded_queue_size = recorded_queue.qsize()
+        recorded_queue_size = recorded_queue_reducer.check()
+        feature_queue_size = feature_queue_reducer.check()
+        converted_queue_size = converted_queue_reducer.check()
         logger.debug('録音キュー:{} 特徴量キュー:{} 変換済みキュー:{}'.format(
             recorded_queue_size,
-            feature_queue.qsize(),
-            converted_queue.qsize()
+            feature_queue_size,
+            converted_queue_size
         ))
-
-        if recorded_queue_size > MAX_RECORDED_QUEUE_SIZE:
-            num_remove = recorded_queue_size - MAX_RECORDED_QUEUE_SIZE
-            logger.debug('録音キューから強制的に{}個取り除く'.format(num_remove))
-            for _ in range(num_remove):
-                recorded_queue.get()
 
         recorded_wav = microphone.read_frame()
         recorded_queue.put(recorded_wav)
