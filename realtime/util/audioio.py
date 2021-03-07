@@ -49,7 +49,7 @@ class Microphone:
         wav_bytes = self._stream.read(self._frame_per_buffer)
         wav_array = numpy.frombuffer(wav_bytes, dtype=numpy.core.int16)
         wav_array = lfilter(self._lowcutfilter, 1, wav_array)
-        return wav_array.astype(numpy.float)
+        return wav_array.astype(numpy.core.int16)
 
     def _read_frame_wo_lowpassfilter(self):
         wav_bytes = self._stream.read(self._frame_per_buffer)
